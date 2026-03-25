@@ -1,4 +1,5 @@
 import re
+import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -272,18 +273,19 @@ def my_folders():
     folders = Folder.query.filter_by(user_id=current_user.id).all()
     return render_template('my_folders.html', folders=folders)
 
+
 @app.route('/folder/<int:folder_id>')
 @login_required
 def folder_details(folder_id):
     folder = Folder.query.get(folder_id)
     if not folder or folder.user_id != current_user.id:
-        flash('folder not found', 'danger')
+        flash('ไม่พบโฟลเดอร์ หรือคุณไม่มีสิทธิ์เข้าถึง', 'danger')
         return redirect(url_for('my_folders'))
 
     bookmarks = Bookmark.query.filter_by(folder_id=folder.id).all()
     recipe_list = []
+    saved_recipe_ids = [bm.recipe_id for bm in bookmarks]  # เก็บ ID เมนูที่เซฟไว้แล้ว
 
-    # ดึงรายละเอียดอาหาร (รูป, เวลา) จาก DataFrame ใน RAM มาประกอบกับข้อมูล Bookmark
     for bm in bookmarks:
         recipe_data = df[df['RecipeId'] == bm.recipe_id]
         if not recipe_data.empty:
@@ -297,7 +299,39 @@ def folder_details(folder_id):
                 'time': recipe['FormattedTime']
             })
 
-    return render_template('folder_details.html', folder=folder, recipes=recipe_list)
+    # --- ระบบแนะนำอาหาร (Recommendation System) ---
+    recommendations = []
+    if saved_recipe_ids:
+        # 1. หาตำแหน่ง Index ของเมนูที่เซฟไว้ใน DataFrame
+        saved_indices = df.index[df['RecipeId'].isin(saved_recipe_ids)].tolist()
+
+        if saved_indices:
+            # 2. ดึงเวกเตอร์ของเมนูที่เซฟไว้มาหาค่าเฉลี่ย เพื่อสร้าง Profile Vector ของโฟลเดอร์นี้
+            saved_vectors = tfidf_matrix[saved_indices]
+            profile_vector = np.asarray(saved_vectors.mean(axis=0))
+
+            # 3. เทียบความเหมือนกับเมนูทั้งหมดในระบบ
+            similarities = cosine_similarity(profile_vector, tfidf_matrix).flatten()
+
+            # 4. เรียงลำดับจากมากไปน้อย
+            top_indices = similarities.argsort()[::-1]
+
+            # 5. ดึง 4 อันดับแรกที่ไม่ซ้ำกับของเดิมมาแนะนำ
+            for idx in top_indices:
+                rec_id = df.iloc[idx]['RecipeId']
+                if rec_id not in saved_recipe_ids:  # ตรวจสอบว่ายังไม่ได้เซฟ
+                    recipe = df.iloc[idx]
+                    recommendations.append({
+                        'id': recipe['RecipeId'],
+                        'name': recipe['Name'],
+                        'image': recipe['FirstImage'],
+                        'time': recipe['FormattedTime'],
+                        'score': similarities[idx]
+                    })
+                if len(recommendations) >= 4:  # เอาแค่ 4 เมนูพอให้แสดงผลสวยงาม
+                    break
+
+    return render_template('folder_details.html', folder=folder, recipes=recipe_list, recommendations=recommendations)
 
 @app.route('/update_rating/<int:bookmark_id>', methods=['POST'])
 @login_required
