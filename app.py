@@ -1,6 +1,8 @@
 import re
 import numpy as np
+from spellchecker import SpellChecker
 import pandas as pd
+import random
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from flask import Flask, render_template, redirect, url_for, request, flash
@@ -104,18 +106,38 @@ vectorizer = TfidfVectorizer(stop_words='english')
 tfidf_matrix = vectorizer.fit_transform(df['combined_text'])
 print("System Ready!")
 
-
 @app.route('/search', methods=['GET'])
 @login_required
 def search():
     query = request.args.get('q', '')
     results = []
+    corrected_query = None
 
     if query:
+        # --- ระบบตรวจคำผิด (Spell Correction) ---
+        spell = SpellChecker()
+        words = query.split()
+        misspelled = spell.unknown(words)
+
+        if misspelled:
+            corrected_words = []
+            for word in words:
+                if word in misspelled:
+                    correction = spell.correction(word)
+                    corrected_words.append(correction if correction else word)
+                else:
+                    corrected_words.append(word)
+
+            potential_correction = " ".join(corrected_words)
+            # ถ้าคำที่แก้แล้วไม่เหมือนคำเดิม ให้ส่งไปโชว์ที่หน้าเว็บ
+            if potential_correction.lower() != query.lower():
+                corrected_query = potential_correction
+
+        # --- ประมวลผล TF-IDF ด้วยคำค้นหาเดิม (query) ---
         query_vec = vectorizer.transform([query])
         similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
-        top_20_indices = similarities.argsort()[-20:][::-1]
 
+        # ดึง 20 อันดับแรก
         top_20_indices = similarities.argsort()[-20:][::-1]
 
         for idx in top_20_indices:
@@ -171,14 +193,49 @@ def search():
                     'time': recipe['FormattedTime'],
                     'score': similarities[idx]
                 })
+
     folders = Folder.query.filter_by(user_id=current_user.id).all()
 
-    # ต้องส่งตัวแปร folders ไปด้วย
-    return render_template('search.html', query=query, results=results, folders=folders)
+    # ต้องส่งตัวแปร folders และ corrected_query ไปด้วย
+    return render_template('search.html', query=query, results=results, folders=folders,
+                           corrected_query=corrected_query)
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    if not current_user.is_authenticated:
+        return render_template('index.html')
+
+    summary_list = []
+    category_list = []
+    chosen_folder_name = None
+    random_list = []
+
+    # 1. Summary from all folders (ดึง 4 เมนูล่าสุดที่เคยเซฟไว้จากทุกโฟลเดอร์)
+    recent_bookmarks = Bookmark.query.join(Folder).filter(Folder.user_id == current_user.id).order_by(Bookmark.id.desc()).limit(4).all()
+    for bm in recent_bookmarks:
+        recipe_data = df[df['RecipeId'] == bm.recipe_id]
+        if not recipe_data.empty:
+            recipe = recipe_data.iloc[0]
+            summary_list.append({'name': bm.recipe_name, 'image': recipe['FirstImage'], 'time': recipe['FormattedTime']})
+
+    # 2. Selection from a specific chosen category (สุ่มเลือก 1 โฟลเดอร์ของผู้ใช้มาแสดง)
+    user_folders = Folder.query.filter_by(user_id=current_user.id).all()
+    if user_folders:
+        chosen_folder = random.choice(user_folders)
+        chosen_folder_name = chosen_folder.name
+        folder_bms = Bookmark.query.filter_by(folder_id=chosen_folder.id).limit(4).all()
+        for bm in folder_bms:
+            recipe_data = df[df['RecipeId'] == bm.recipe_id]
+            if not recipe_data.empty:
+                recipe = recipe_data.iloc[0]
+                category_list.append({'name': bm.recipe_name, 'image': recipe['FirstImage'], 'time': recipe['FormattedTime']})
+
+    # 3. Completely random dishes (สุ่มเมนูใหม่ 4 เมนู)
+    random_recipes = df.sample(4)
+    for _, recipe in random_recipes.iterrows():
+        random_list.append({'name': recipe['Name'], 'image': recipe['FirstImage'], 'time': recipe['FormattedTime']})
+
+    return render_template('index.html', summary_list=summary_list, category_list=category_list, chosen_folder_name=chosen_folder_name, random_list=random_list)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -364,6 +421,28 @@ def delete_folder(folder_id):
         db.session.commit()
         flash(f'folder deleted {folder.name} successfully', 'success')
     return redirect(url_for('my_folders'))
+
+
+@app.route('/all_bookmarks')
+@login_required
+def all_bookmarks():
+    # ดึง Bookmark ทั้งหมดของ User นี้ และเรียงตาม Rating จากมากไปน้อย (Ranked)
+    all_bms = Bookmark.query.join(Folder).filter(Folder.user_id == current_user.id).order_by(
+        Bookmark.rating.desc()).all()
+
+    bookmark_list = []
+    for bm in all_bms:
+        recipe_data = df[df['RecipeId'] == bm.recipe_id]
+        if not recipe_data.empty:
+            recipe = recipe_data.iloc[0]
+            bookmark_list.append({
+                'name': bm.recipe_name,
+                'rating': bm.rating,
+                'folder_name': bm.folder.name,
+                'image': recipe['FirstImage'],
+                'time': recipe['FormattedTime']
+            })
+    return render_template('all_bookmarks.html', bookmarks=bookmark_list)
 
 # สร้างตารางในฐานข้อมูลก่อนรันแอปพลิเคชัน
 with app.app_context():
