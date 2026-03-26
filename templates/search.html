@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row mt-4">
+    <div class="col-12">
+        <h2 class="mb-4">Search Recipes</h2>
+        
+        <div class="mb-4">
+            <form method="GET" action="{{ url_for('search') }}" class="d-flex w-100 shadow-sm rounded">
+                <input class="form-control me-2 form-control-lg border-primary" type="search" name="q" value="{{ query }}" placeholder="Search by name, ingredients..." required id="searchInput" list="suggestions" autocomplete="off">
+                <datalist id="suggestions"></datalist>
+
+                <select name="max_time" class="form-select w-25 me-2 border-primary">
+                    <option value="0" {% if request.args.get('max_time') == '0' %}selected{% endif %}>Any Time</option>
+                    <option value="30" {% if request.args.get('max_time') == '30' %}selected{% endif %}>Under 30 Mins</option>
+                    <option value="60" {% if request.args.get('max_time') == '60' %}selected{% endif %}>Under 1 Hour</option>
+                </select>
+
+                <button class="btn btn-primary btn-lg px-4" type="submit">Search</button>
+            </form>
+        </div>
+
+        {% if corrected_query %}
+            <div class="alert alert-warning mb-4 shadow-sm" role="alert">
+                <i class="bi bi-info-circle"></i> Did you mean
+                <a href="{{ url_for('search', q=corrected_query) }}" class="alert-link fw-bold text-decoration-underline">{{ corrected_query }}</a>
+                ?
+            </div>
+        {% endif %}
+
+        {% if query %}
+            <h4 class="mb-4 mt-4">Found {{ results|length }} results for "{{ query }}"</h4>
+
+            {% if results %}
+                <div class="row row-cols-1 row-cols-md-3 row-cols-lg-4 g-4">
+                    {% for item in results %}
+                        <div class="col">
+                            <div class="card h-100 shadow-sm border-0 bg-light">
+                                <img src="{{ url_for('cached_image', url=item.image) }}" class="card-img-top rounded-top" alt="{{ item.name }}" style="height: 200px; object-fit: cover;" loading="lazy">
+                                <div class="card-body d-flex flex-column">
+                                    <h5 class="card-title text-primary">{{ item.name | title }}</h5>
+                                    <p class="card-text text-muted small mb-2"><i class="bi bi-clock"></i> Time: {{ item.time }}</p>
+                                    <p class="card-text text-muted small mb-3">Match: {{ "%.0f"|format(item.score * 100) }}%</p>
+                                    <button type="button" class="btn btn-outline-primary mt-auto fw-bold" data-bs-toggle="modal" data-bs-target="#recipeModal{{ item.id }}">
+                                        View Recipe
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="modal fade" id="recipeModal{{ item.id }}" tabindex="-1" aria-labelledby="recipeModalLabel{{ item.id }}" aria-hidden="true">
+                            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                                <div class="modal-content">
+                                    <div class="modal-header bg-primary text-white">
+                                        <h5 class="modal-title" id="recipeModalLabel{{ item.id }}">{{ item.name | title }}</h5>
+                                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <img src="{{ url_for('cached_image', url=item.image) }}" class="img-fluid rounded shadow-sm mb-4 w-100" alt="{{ item.name }}" style="max-height: 400px; object-fit: cover;" loading="lazy">
+
+                                        <h6 class="text-primary fw-bold"><i class="bi bi-stopwatch"></i> Total Time</h6>
+                                        <p class="mb-4">{{ item.time }}</p>
+
+                                        <h6 class="text-primary fw-bold"><i class="bi bi-basket"></i> Ingredients</h6>
+                                        <p class="bg-light p-3 rounded" style="white-space: pre-line;">{{ item.ingredients }}</p>
+
+                                        <h6 class="text-primary fw-bold mt-4"><i class="bi bi-list-ol"></i> Instructions</h6>
+                                        <p class="bg-light p-3 rounded" style="white-space: pre-line;">{{ item.instructions }}</p>
+
+                                        <hr>
+                                        <h6 class="text-success fw-bold mt-4"><i class="bi bi-stars"></i> More Like This</h6>
+                                        <ul class="list-unstyled">
+                                            {% for sim in item.similar_recipes %}
+                                                <li class="mb-2"><a href="{{ url_for('search', q=sim) }}" class="text-decoration-none btn btn-sm btn-outline-success rounded-pill">{{ sim | title }}</a></li>
+                                            {% else %}
+                                                <li class="text-muted small">No similar recipes found.</li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+
+                                    <div class="modal-footer bg-light">
+                                        <div class="d-flex flex-wrap w-100 gap-2 justify-content-between align-items-center">
+
+                                            <div class="d-flex flex-wrap gap-3 flex-grow-1 align-items-center">
+
+                                                <form action="{{ url_for('bookmark_recipe') }}" method="POST" class="d-flex align-items-center">
+                                                    <input type="hidden" name="recipe_id" value="{{ item.id }}">
+                                                    <input type="hidden" name="recipe_name" value="{{ item.name }}">
+
+                                                    {% if folders %}
+                                                        <select name="folder_id" class="form-select form-select-sm me-2 border-success" style="min-width: 140px;" required>
+                                                            <option value="" disabled selected>Select folder...</option>
+                                                            {% for folder in folders %}
+                                                                <option value="{{ folder.id }}">{{ folder.name }}</option>
+                                                            {% endfor %}
+                                                        </select>
+                                                        <button type="submit" class="btn btn-success btn-sm text-nowrap shadow-sm">Save Recipe</button>
+                                                    {% else %}
+                                                        <span class="text-danger small fw-bold me-2">Create folder first &rarr;</span>
+                                                        <button type="button" class="btn btn-success btn-sm text-nowrap opacity-50" disabled>Save Recipe</button>
+                                                    {% endif %}
+                                                </form>
+
+                                                <div class="vr d-none d-lg-block mx-1"></div>
+
+                                                <form method="POST" action="{{ url_for('create_folder') }}" class="d-flex align-items-center">
+                                                    <input type="text" name="folder_name" class="form-control form-control-sm me-2" placeholder="New Folder..." style="min-width: 120px;" required>
+                                                    <button type="submit" class="btn btn-outline-success btn-sm text-nowrap">Create</button>
+                                                </form>
+
+                                            </div>
+
+                                            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-info mt-4">No recipes found matching your query.</div>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    document.getElementById('searchInput').addEventListener('input', function(e) {
+        const q = e.target.value;
+        if (q.length >= 2) {
+            fetch(`/autocomplete?q=${q}`)
+                .then(response => response.json())
+                .then(data => {
+                    const datalist = document.getElementById('suggestions');
+                    datalist.innerHTML = '';
+                    data.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = item;
+                        datalist.appendChild(option);
+                    });
+                });
+        }
+    });
+</script>
+{% endblock %}

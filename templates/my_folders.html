@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="row mt-4">
+    <div class="col-12">
+        <h2 class="mb-4">My Folders</h2>
+        
+        {% if folders %}
+            <div class="row row-cols-1 row-cols-md-3 row-cols-lg-4 g-4">
+                {% for folder in folders %}
+                    <div class="col">
+                        <div class="card h-100 shadow-sm border-primary">
+                            <div class="card-body text-center d-flex flex-column justify-content-center">
+                                <h4 class="card-title text-primary mb-3"><i class="bi bi-folder-fill"></i> {{ folder.name }}</h4>
+                                <p class="text-muted small">{{ folder.bookmarks|length }} Saved Recipes</p>
+                                
+                                <div class="mt-auto d-grid gap-2">
+                                    <a href="{{ url_for('folder_details', folder_id=folder.id) }}" class="btn btn-primary">Open Folder</a>
+                                    
+                                    <form method="POST" action="{{ url_for('delete_folder', folder_id=folder.id) }}" onsubmit="return confirm('Are you sure you want to delete this folder? All data inside will be lost.');">
+                                        <button type="submit" class="btn btn-outline-danger w-100 mt-2 btn-sm">Delete Folder</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="alert alert-info">You don't have a folder yet. Try going to the Search page to create a folder and save your menus!</div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
