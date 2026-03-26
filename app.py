@@ -5,7 +5,7 @@ import pandas as pd
 import random
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from flask import Flask, render_template, redirect, url_for, request, flash
+from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -113,7 +113,23 @@ print("Building TF-IDF Matrix...")
 # สร้างโมเดล TF-IDF (ตัด stop words ภาษาอังกฤษออกเพื่อให้ผลลัพธ์แม่นยำขึ้น)
 vectorizer = TfidfVectorizer(stop_words='english')
 tfidf_matrix = vectorizer.fit_transform(df['combined_text'])
+# เตรียมลิสต์ชื่ออาหารสำหรับระบบ Autocomplete
+print("Building Vocabulary for Autocomplete...")
+recipe_names_list = df['Name'].dropna().tolist()
+
 print("System Ready!")
+
+
+@app.route('/autocomplete')
+@login_required
+def autocomplete():
+    q = request.args.get('q', '').lower()
+    if len(q) < 2:
+        return jsonify([])
+
+    # ดึงชื่ออาหารที่มีคำค้นหาผสมอยู่ (ดึงมาแค่ 5 อันดับแรกเพื่อให้ทำงานเร็ว)
+    suggestions = [name for name in recipe_names_list if q in str(name).lower()][:5]
+    return jsonify(suggestions)
 
 @app.route('/search', methods=['GET'])
 @login_required
