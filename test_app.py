@@ -60,6 +60,20 @@ class FoodAppTestCase(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.is_json)
 
+    def test_search_displays_reviews(self):
+        """Test if the search page successfully loads and displays the User Reviews section."""
+        # Mock a logged-in session
+        with self.client.session_transaction() as sess:
+            sess['_user_id'] = '1'
+            sess['_fresh'] = True
+
+        # Perform a search request
+        response = self.client.get('/search?q=chicken')
+        self.assertEqual(response.status_code, 200)
+
+        # Verify that the "User Reviews" header exists in the rendered HTML
+        html_content = response.data.decode('utf-8')
+        self.assertIn('User Reviews', html_content)
 
 if __name__ == '__main__':
     unittest.main()
