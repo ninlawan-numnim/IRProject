@@ -5,18 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="74e039a5-f7b1-49eb-af10-a3d85a183797" name="Changes" comment=" Add DATA">
-      <change afterPath="$PROJECT_DIR$/static/image_cache/099b120a4d8b9879dc7e8bdc1d4e0cfa.jpg" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/image_cache/4c4cc36c97b9a26828383e3bd69b2200.jpg" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/image_cache/904ff3a6153efb9674c45ceba1bff5d2.jpg" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/image_cache/9565354f08aa2a6335fb8cd1d88d2097.jpg" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/image_cache/bfd5da597e52dcabd0d4fc4c2f7fcfdf.jpg" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/image_cache/c78f77821ab974e5a17f3078ca632095.jpg" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/image_cache/d780bb342d05d07736293de9306534de.jpg" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/image_cache/d816d733a78706cb02ba0d3d9e94f810.jpg" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/static/image_cache/efafb393c56c31609c36deec3f74b79c.jpg" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/templates/search.html" beforeDir="false" afterPath="$PROJECT_DIR$/templates/search.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/instance/food_app.db" beforeDir="false" afterPath="$PROJECT_DIR$/instance/food_app.db" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

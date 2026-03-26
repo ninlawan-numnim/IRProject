@@ -184,17 +184,16 @@ def search():
         # ดึง 20 อันดับแรก
         top_20_indices = similarities.argsort()[-20:][::-1]
 
-        for idx in top_20_indices:
+        top_20_vecs = tfidf_matrix[top_20_indices]
+        all_sims_matrix = cosine_similarity(top_20_vecs, tfidf_matrix)
+
+        for loop_idx, idx in enumerate(top_20_indices):
             if similarities[idx] > 0:
                 recipe = df.iloc[idx]
 
-                # ==========================================
-                # [IR Feature 1: More Like This]
-                # หาเมนูที่คล้ายกับเมนูนี้ โดยเทียบ Vector
-                # ==========================================
-                recipe_vec = tfidf_matrix[idx]
-                sims = cosine_similarity(recipe_vec, tfidf_matrix).flatten()
-                sim_indices = sims.argsort()[-4:][::-1]  # ดึง 4 อันดับ (อันดับ 1 คือตัวมันเอง)
+                # ดึงผลลัพธ์ความคล้ายที่คำนวณไว้แล้วมาใช้ได้เลย
+                sims = all_sims_matrix[loop_idx]
+                sim_indices = sims.argsort()[-4:][::-1]
 
                 similar_recipes = []
                 for s_idx in sim_indices:
@@ -522,4 +521,4 @@ with app.app_context():
     db.create_all()
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, threaded=True)
