@@ -1,0 +1,14 @@
+# IDEs
+.idea/
+.vscode/
+
+# Data & Database
+data/
+instance/
+*.db
+
+# Cache & Virtual Environment
+__pycache__/
+.venv/
+venv/
+static/image_cache/
