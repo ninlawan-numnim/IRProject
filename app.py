@@ -14,7 +14,7 @@ import hashlib
 import requests
 from PIL import Image
 from io import BytesIO
-from flask import send_from_directory, request, redirect
+from flask import send_from_directory
 
 # ตั้งค่าคีย์สำหรับการทำ Session และตั้งค่าเชื่อมต่อฐานข้อมูล SQLite
 app = Flask(__name__)
@@ -73,7 +73,6 @@ df['combined_text'] = df['Name'].astype(str) + " " + df['RecipeIngredientParts']
 
 # --- ฟังก์ชันจัดการข้อมูลเสริม ---
 def format_time(pt_str):
-    # ถ้าข้อมูลไม่ใช่ String (เช่น เป็นค่าว่าง หรือ Array) ให้ข้ามไปเลย
     if not isinstance(pt_str, str):
         return 'N/A'
     if pt_str == 'NA':
@@ -93,7 +92,6 @@ def extract_first_image(img_data):
     # กรณี 1: ข้อมูลเป็น List หรือ Array (จาก Parquet)
     if isinstance(img_data, (list, tuple)) or type(img_data).__name__ == 'ndarray':
         if len(img_data) > 0 and img_data[0] != 'character(0)':
-            # ดึง URL แรกสุดมาใช้
             return str(img_data[0]).strip('"')
         return default_img
 
@@ -106,7 +104,7 @@ def extract_first_image(img_data):
 
     return default_img
 
-    return 'https://via.placeholder.com/400x300?text=No+Image+Available'
+
 # สร้างคอลัมน์ใหม่ที่ผ่านการคลีนแล้ว
 df['FormattedTime'] = df['TotalTime'].apply(format_time)
 df['FirstImage'] = df['Images'].apply(extract_first_image)
@@ -155,27 +153,30 @@ def search():
             if similarities[idx] > 0:
                 recipe = df.iloc[idx]
 
+                # ==========================================
+                # [IR Feature 1: More Like This]
+                # หาเมนูที่คล้ายกับเมนูนี้ โดยเทียบ Vector
+                # ==========================================
+                recipe_vec = tfidf_matrix[idx]
+                sims = cosine_similarity(recipe_vec, tfidf_matrix).flatten()
+                sim_indices = sims.argsort()[-4:][::-1]  # ดึง 4 อันดับ (อันดับ 1 คือตัวมันเอง)
+
+                similar_recipes = []
+                for s_idx in sim_indices:
+                    if s_idx != idx and sims[s_idx] > 0:
+                        similar_recipes.append(df.iloc[s_idx]['Name'])
+
                 # ฟังก์ชันช่วยแปลง Array ให้เป็น List ของข้อความที่คลีนแล้ว
                 def parse_array(arr):
-                    # กรณี 1: ถ้าข้อมูลเป็น List หรือ Array อยู่แล้ว (Parquet มักจะโหลดมาเป็นแบบนี้)
                     if isinstance(arr, (list, tuple)) or type(arr).__name__ == 'ndarray':
-                        # ดึงข้อมูลออกมาใช้งานตรงๆ ได้เลย
-                        return [str(x).strip() for x in arr if
-                                x is not None and str(x).strip() not in ('', 'None', 'nan')]
-
-                    # กรณี 2: ถ้าไม่ใช่ Array ให้เช็กค่าว่างอย่างปลอดภัย
+                        return [str(x).strip() for x in arr if x is not None and str(x).strip() not in ('', 'None', 'nan')]
                     if pd.isna(arr):
                         return []
-
                     arr_str = str(arr)
-
-                    # กรณี 3: เป็นข้อความ String แต่หน้าตาเหมือน Array (ดึงคำในเครื่องหมายคำพูด)
                     matches = re.findall(r"'([^']*)'|\"([^\"]*)\"", arr_str)
                     cleaned_items = [m[0] or m[1] for m in matches]
-
                     if not cleaned_items and arr_str.strip() not in ('', '[]', 'None'):
                         cleaned_items = [x.strip(' \'"[]') for x in arr_str.split(',')]
-
                     return [x for x in cleaned_items if x and x != 'None']
 
                 # ดึงข้อมูลออกมาเป็น List
@@ -188,26 +189,25 @@ def search():
                 for i in range(max(len(parts), len(qtys))):
                     q = qtys[i] if i < len(qtys) else ""
                     p = parts[i] if i < len(parts) else ""
-
-                    if p.strip():  # บังคับว่าต้องมีชื่อวัตถุดิบเท่านั้นถึงจะนำมาแสดงผล
+                    if p.strip():
                         combined_ingredients.append(f"• {q} {p}".strip())
 
-                # จัดฟอร์แมตขั้นตอนการทำ (ใส่ตัวเลขข้อ 1., 2., 3.)
+                # จัดฟอร์แมตขั้นตอนการทำ
                 formatted_instructions = "\n".join([f"{i + 1}. {step}" for i, step in enumerate(instructions)])
 
                 results.append({
                     'id': recipe['RecipeId'],
                     'name': recipe['Name'],
-                    'ingredients': "\n".join(combined_ingredients),  # ส่งเป็นข้อความที่ขึ้นบรรทัดใหม่แล้ว
-                    'instructions': formatted_instructions,  # ส่งเป็นข้อความที่ขึ้นบรรทัดใหม่แล้ว
+                    'ingredients': "\n".join(combined_ingredients),
+                    'instructions': formatted_instructions,
                     'image': recipe['FirstImage'],
                     'time': recipe['FormattedTime'],
-                    'score': similarities[idx]
+                    'score': similarities[idx],
+                    'similar_recipes': similar_recipes[:3] # <--- ส่งไปหน้าเว็บตรงนี้
                 })
 
     folders = Folder.query.filter_by(user_id=current_user.id).all()
 
-    # ต้องส่งตัวแปร folders และ corrected_query ไปด้วย
     return render_template('search.html', query=query, results=results, folders=folders,
                            corrected_query=corrected_query)
 
@@ -221,7 +221,7 @@ def index():
     chosen_folder_name = None
     random_list = []
 
-    # 1. Summary from all folders (ดึง 4 เมนูล่าสุดที่เคยเซฟไว้จากทุกโฟลเดอร์)
+    # 1. Summary from all folders
     recent_bookmarks = Bookmark.query.join(Folder).filter(Folder.user_id == current_user.id).order_by(Bookmark.id.desc()).limit(4).all()
     for bm in recent_bookmarks:
         recipe_data = df[df['RecipeId'] == bm.recipe_id]
@@ -229,7 +229,7 @@ def index():
             recipe = recipe_data.iloc[0]
             summary_list.append({'name': bm.recipe_name, 'image': recipe['FirstImage'], 'time': recipe['FormattedTime']})
 
-    # 2. Selection from a specific chosen category (สุ่มเลือก 1 โฟลเดอร์ของผู้ใช้มาแสดง)
+    # 2. Selection from a specific chosen category
     user_folders = Folder.query.filter_by(user_id=current_user.id).all()
     if user_folders:
         chosen_folder = random.choice(user_folders)
@@ -241,7 +241,7 @@ def index():
                 recipe = recipe_data.iloc[0]
                 category_list.append({'name': bm.recipe_name, 'image': recipe['FirstImage'], 'time': recipe['FormattedTime']})
 
-    # 3. Completely random dishes (สุ่มเมนูใหม่ 4 เมนู)
+    # 3. Completely random dishes
     random_recipes = df.sample(4)
     for _, recipe in random_recipes.iterrows():
         random_list.append({'name': recipe['Name'], 'image': recipe['FirstImage'], 'time': recipe['FormattedTime']})
@@ -254,13 +254,11 @@ def register():
         username = request.form.get('username')
         password = request.form.get('password')
 
-        # เช็กว่ามีชื่อผู้ใช้นี้ในระบบหรือยัง
         user = User.query.filter_by(username=username).first()
         if user:
             flash('Username already exists. Please choose a different one.')
             return redirect(url_for('register'))
 
-        # เข้ารหัสผ่านก่อนบันทึกลงฐานข้อมูล
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
         new_user = User(username=username, password_hash=hashed_password)
 
@@ -281,7 +279,6 @@ def login():
 
         user = User.query.filter_by(username=username).first()
 
-        # ตรวจสอบชื่อผู้ใช้และรหัสผ่าน
         if user and check_password_hash(user.password_hash, password):
             login_user(user)
             return redirect(url_for('index'))
@@ -291,7 +288,7 @@ def login():
     return render_template('login.html')
 
 @app.route('/logout')
-@login_required # ต้องล็อกอินก่อนถึงจะล็อกเอาต์ได้
+@login_required
 def logout():
     logout_user()
     return redirect(url_for('index'))
@@ -322,7 +319,6 @@ def bookmark_recipe():
         flash('please select foler before save', 'danger')
         return redirect(request.referrer or url_for('search'))
 
-    # ตรวจสอบว่าเคยเซฟเมนูนี้ในโฟลเดอร์นี้หรือยัง (Unique Constraint)
     existing_bookmark = Bookmark.query.filter_by(folder_id=folder_id, recipe_id=recipe_id).first()
     if existing_bookmark:
         flash(f'you save "{recipe_name}" in this folder already', 'warning')
@@ -337,7 +333,6 @@ def bookmark_recipe():
 @app.route('/my_folders')
 @login_required
 def my_folders():
-    # ดึงโฟลเดอร์ทั้งหมดของ User ปัจจุบัน
     folders = Folder.query.filter_by(user_id=current_user.id).all()
     return render_template('my_folders.html', folders=folders)
 
@@ -352,7 +347,7 @@ def folder_details(folder_id):
 
     bookmarks = Bookmark.query.filter_by(folder_id=folder.id).all()
     recipe_list = []
-    saved_recipe_ids = [bm.recipe_id for bm in bookmarks]  # เก็บ ID เมนูที่เซฟไว้แล้ว
+    saved_recipe_ids = [bm.recipe_id for bm in bookmarks]
 
     for bm in bookmarks:
         recipe_data = df[df['RecipeId'] == bm.recipe_id]
@@ -370,24 +365,17 @@ def folder_details(folder_id):
     # --- ระบบแนะนำอาหาร (Recommendation System) ---
     recommendations = []
     if saved_recipe_ids:
-        # 1. หาตำแหน่ง Index ของเมนูที่เซฟไว้ใน DataFrame
         saved_indices = df.index[df['RecipeId'].isin(saved_recipe_ids)].tolist()
 
         if saved_indices:
-            # 2. ดึงเวกเตอร์ของเมนูที่เซฟไว้มาหาค่าเฉลี่ย เพื่อสร้าง Profile Vector ของโฟลเดอร์นี้
             saved_vectors = tfidf_matrix[saved_indices]
             profile_vector = np.asarray(saved_vectors.mean(axis=0))
-
-            # 3. เทียบความเหมือนกับเมนูทั้งหมดในระบบ
             similarities = cosine_similarity(profile_vector, tfidf_matrix).flatten()
-
-            # 4. เรียงลำดับจากมากไปน้อย
             top_indices = similarities.argsort()[::-1]
 
-            # 5. ดึง 4 อันดับแรกที่ไม่ซ้ำกับของเดิมมาแนะนำ
             for idx in top_indices:
                 rec_id = df.iloc[idx]['RecipeId']
-                if rec_id not in saved_recipe_ids:  # ตรวจสอบว่ายังไม่ได้เซฟ
+                if rec_id not in saved_recipe_ids:
                     recipe = df.iloc[idx]
                     recommendations.append({
                         'id': recipe['RecipeId'],
@@ -396,7 +384,7 @@ def folder_details(folder_id):
                         'time': recipe['FormattedTime'],
                         'score': similarities[idx]
                     })
-                if len(recommendations) >= 4:  # เอาแค่ 4 เมนูพอให้แสดงผลสวยงาม
+                if len(recommendations) >= 4:
                     break
 
     return render_template('folder_details.html', folder=folder, recipes=recipe_list, recommendations=recommendations)
@@ -437,7 +425,6 @@ def delete_folder(folder_id):
 @app.route('/all_bookmarks')
 @login_required
 def all_bookmarks():
-    # ดึง Bookmark ทั้งหมดของ User นี้ และเรียงตาม Rating จากมากไปน้อย (Ranked)
     all_bms = Bookmark.query.join(Folder).filter(Folder.user_id == current_user.id).order_by(
         Bookmark.rating.desc()).all()
 
@@ -464,53 +451,40 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 def cached_image():
     image_url = request.args.get('url')
 
-    # ถ้าไม่มี URL หรือเป็นรูป Local อยู่แล้ว ให้โยนไปใช้รูป Local เลย
     if not image_url or image_url.startswith('/static/'):
         return redirect(image_url or '/static/default_image.jpg')
 
-    # สร้างชื่อไฟล์ด้วยการ Hash URL เพื่อป้องกันชื่อซ้ำและอักขระพิเศษ
     url_hash = hashlib.md5(image_url.encode('utf-8')).hexdigest()
     filename = f"{url_hash}.jpg"
     filepath = os.path.join(CACHE_DIR, filename)
 
-    # 1. เช็กว่ามีรูปนี้ใน Cache ของเซิร์ฟเวอร์หรือยัง (Fully Cached)
     if os.path.exists(filepath):
-        # เสิร์ฟรูปจาก Cache พร้อมตั้งค่า HTTP Header ให้เบราว์เซอร์จำรูปนี้ไว้ 1 ปี (max_age)
         return send_from_directory(CACHE_DIR, filename, max_age=31536000)
 
-    # 2. ถ้ายังไม่มี ให้ดาวน์โหลดและทำการ Optimize
     try:
         response = requests.get(image_url, timeout=5)
         response.raise_for_status()
 
-        # เปิดรูปด้วยไลบรารี Pillow
         img = Image.open(BytesIO(response.content))
 
-        # แปลงโหมดสีเป็น RGB (เผื่อรูปต้นทางเป็น PNG แบบโปร่งใส)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
 
-        # Optimize: ปรับลดขนาดรูปให้กว้างสูงสุดแค่ 400px เพื่อ Instant Loading
         base_width = 400
         if img.width > base_width:
             wpercent = (base_width / float(img.width))
             hsize = int((float(img.height) * float(wpercent)))
             img = img.resize((base_width, hsize), Image.Resampling.LANCZOS)
 
-        # บันทึกรูปลงเซิร์ฟเวอร์ (ปรับ Quality เป็น 85% เพื่อลดขนาดไฟล์)
         img.save(filepath, "JPEG", quality=85)
-
         return send_from_directory(CACHE_DIR, filename, max_age=31536000)
 
     except Exception as e:
         print(f"Error caching image: {e}")
-        # ถ้าระบบดาวน์โหลดหรือบีบอัดพัง ให้ดึงรูประบบที่เป็น Local มาโชว์แทน
         return redirect('/static/default_image.jpg')
 
-# สร้างตารางในฐานข้อมูลก่อนรันแอปพลิเคชัน
 with app.app_context():
     db.create_all()
 
 if __name__ == '__main__':
-    # รันเซิร์ฟเวอร์
     app.run(debug=True)
