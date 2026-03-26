@@ -107,6 +107,20 @@ def extract_first_image(img_data):
 
 # สร้างคอลัมน์ใหม่ที่ผ่านการคลีนแล้ว
 df['FormattedTime'] = df['TotalTime'].apply(format_time)
+
+# ฟังก์ชันแปลงเวลาเป็นตัวเลข (นาที) เพื่อใช้ทำตัวกรอง (Faceted Search)
+def extract_minutes(pt_str):
+    if not isinstance(pt_str, str) or pt_str == 'NA':
+        return 9999
+    h = re.search(r'(\d+)H', pt_str)
+    m = re.search(r'(\d+)M', pt_str)
+    mins = 0
+    if h: mins += int(h.group(1)) * 60
+    if m: mins += int(m.group(1))
+    return mins if mins > 0 else 9999
+
+df['TimeMinutes'] = df['TotalTime'].apply(extract_minutes)
+
 df['FirstImage'] = df['Images'].apply(extract_first_image)
 
 print("Building TF-IDF Matrix...")
@@ -135,6 +149,7 @@ def autocomplete():
 @login_required
 def search():
     query = request.args.get('q', '')
+    max_time = request.args.get('max_time', '0', type=int)  # <--- เพิ่มรับค่าตัวกรองเวลาตรงนี้
     results = []
     corrected_query = None
 
@@ -161,6 +176,10 @@ def search():
         # --- ประมวลผล TF-IDF ด้วยคำค้นหาเดิม (query) ---
         query_vec = vectorizer.transform([query])
         similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
+
+        if max_time > 0:
+            time_mask = df['TimeMinutes'] > max_time
+            similarities[time_mask.values] = 0.0
 
         # ดึง 20 อันดับแรก
         top_20_indices = similarities.argsort()[-20:][::-1]
