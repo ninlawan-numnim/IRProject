@@ -13,7 +13,7 @@
         <div class="row row-cols-1 row-cols-md-4 g-4 mb-5">
             {% for item in summary_list %}
             <div class="col"><div class="card h-100 shadow-sm">
-                <img src="{{ item.image }}" class="card-img-top" style="height: 150px; object-fit: cover;">
+                <img src="{{ url_for('cached_image', url=item.image) }}" class="card-img-top" style="height: 150px; object-fit: cover;">
                 <div class="card-body"><h6 class="card-title">{{ item.name | title }}</h6></div>
             </div></div>
             {% else %}
@@ -26,7 +26,7 @@
         <div class="row row-cols-1 row-cols-md-4 g-4 mb-5">
             {% for item in category_list %}
             <div class="col"><div class="card h-100 shadow-sm border-success">
-                <img src="{{ item.image }}" class="card-img-top" style="height: 150px; object-fit: cover;">
+                <img src="{{ url_for('cached_image', url=item.image) }}" class="card-img-top" style="height: 150px; object-fit: cover;">
                 <div class="card-body"><h6 class="card-title text-success">{{ item.name | title }}</h6></div>
             </div></div>
             {% endfor %}
@@ -37,7 +37,7 @@
         <div class="row row-cols-1 row-cols-md-4 g-4 mb-5">
             {% for item in random_list %}
             <div class="col"><div class="card h-100 shadow-sm border-warning">
-                <img src="{{ item.image }}" class="card-img-top" style="height: 150px; object-fit: cover;">
+                <img src="{{ url_for('cached_image', url=item.image) }}" class="card-img-top" style="height: 150px; object-fit: cover;">
                 <div class="card-body"><h6 class="card-title">{{ item.name | title }}</h6></div>
             </div></div>
             {% endfor %}

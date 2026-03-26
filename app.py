@@ -9,6 +9,13 @@ from flask import Flask, render_template, redirect, url_for, request, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+import os
+import hashlib
+import requests
+from PIL import Image
+from io import BytesIO
+from flask import send_from_directory, request, redirect
+
 # ตั้งค่าคีย์สำหรับการทำ Session และตั้งค่าเชื่อมต่อฐานข้อมูล SQLite
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'super_secret_key_se481'
@@ -49,7 +56,7 @@ class Bookmark(db.Model):
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 print("Loading dataset into RAM... This might take a few minutes.")
 columns_to_load = [
@@ -81,19 +88,23 @@ def format_time(pt_str):
 
 
 def extract_first_image(img_data):
+    default_img = '/static/default_image.jpg'
+
     # กรณี 1: ข้อมูลเป็น List หรือ Array (จาก Parquet)
     if isinstance(img_data, (list, tuple)) or type(img_data).__name__ == 'ndarray':
         if len(img_data) > 0 and img_data[0] != 'character(0)':
             # ดึง URL แรกสุดมาใช้
             return str(img_data[0]).strip('"')
-        return 'https://via.placeholder.com/400x300?text=No+Image+Available'
+        return default_img
 
     # กรณี 2: ข้อมูลเป็น String ธรรมดา (จาก CSV)
     if isinstance(img_data, str):
         if img_data == 'character(0)' or img_data == 'NA' or img_data.strip() == '':
-            return 'https://via.placeholder.com/400x300?text=No+Image+Available'
+            return default_img
         match = re.search(r'(https?://[^\s",]+)', img_data)
-        return match.group(1) if match else 'https://via.placeholder.com/400x300?text=No+Image+Available'
+        return match.group(1) if match else default_img
+
+    return default_img
 
     return 'https://via.placeholder.com/400x300?text=No+Image+Available'
 # สร้างคอลัมน์ใหม่ที่ผ่านการคลีนแล้ว
@@ -334,7 +345,7 @@ def my_folders():
 @app.route('/folder/<int:folder_id>')
 @login_required
 def folder_details(folder_id):
-    folder = Folder.query.get(folder_id)
+    folder = db.session.get(Folder, folder_id)
     if not folder or folder.user_id != current_user.id:
         flash('ไม่พบโฟลเดอร์ หรือคุณไม่มีสิทธิ์เข้าถึง', 'danger')
         return redirect(url_for('my_folders'))
@@ -393,7 +404,7 @@ def folder_details(folder_id):
 @app.route('/update_rating/<int:bookmark_id>', methods=['POST'])
 @login_required
 def update_rating(bookmark_id):
-    bookmark = Bookmark.query.get(bookmark_id)
+    bookmark = db.session.get(Bookmark, bookmark_id)
     if bookmark and bookmark.folder.user_id == current_user.id:
         new_rating = request.form.get('rating', type=int)
         if new_rating in [1, 2, 3, 4, 5]:
@@ -405,7 +416,7 @@ def update_rating(bookmark_id):
 @app.route('/delete_bookmark/<int:bookmark_id>', methods=['POST'])
 @login_required
 def delete_bookmark(bookmark_id):
-    bookmark = Bookmark.query.get(bookmark_id)
+    bookmark = db.session.get(Bookmark, bookmark_id)
     if bookmark and bookmark.folder.user_id == current_user.id:
         db.session.delete(bookmark)
         db.session.commit()
@@ -415,7 +426,7 @@ def delete_bookmark(bookmark_id):
 @app.route('/delete_folder/<int:folder_id>', methods=['POST'])
 @login_required
 def delete_folder(folder_id):
-    folder = Folder.query.get(folder_id)
+    folder = db.session.get(Folder, folder_id)
     if folder and folder.user_id == current_user.id:
         db.session.delete(folder)
         db.session.commit()
@@ -443,6 +454,58 @@ def all_bookmarks():
                 'time': recipe['FormattedTime']
             })
     return render_template('all_bookmarks.html', bookmarks=bookmark_list)
+
+
+CACHE_DIR = os.path.join(app.root_path, 'static', 'image_cache')
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+
+@app.route('/cached_image')
+def cached_image():
+    image_url = request.args.get('url')
+
+    # ถ้าไม่มี URL หรือเป็นรูป Local อยู่แล้ว ให้โยนไปใช้รูป Local เลย
+    if not image_url or image_url.startswith('/static/'):
+        return redirect(image_url or '/static/default_image.jpg')
+
+    # สร้างชื่อไฟล์ด้วยการ Hash URL เพื่อป้องกันชื่อซ้ำและอักขระพิเศษ
+    url_hash = hashlib.md5(image_url.encode('utf-8')).hexdigest()
+    filename = f"{url_hash}.jpg"
+    filepath = os.path.join(CACHE_DIR, filename)
+
+    # 1. เช็กว่ามีรูปนี้ใน Cache ของเซิร์ฟเวอร์หรือยัง (Fully Cached)
+    if os.path.exists(filepath):
+        # เสิร์ฟรูปจาก Cache พร้อมตั้งค่า HTTP Header ให้เบราว์เซอร์จำรูปนี้ไว้ 1 ปี (max_age)
+        return send_from_directory(CACHE_DIR, filename, max_age=31536000)
+
+    # 2. ถ้ายังไม่มี ให้ดาวน์โหลดและทำการ Optimize
+    try:
+        response = requests.get(image_url, timeout=5)
+        response.raise_for_status()
+
+        # เปิดรูปด้วยไลบรารี Pillow
+        img = Image.open(BytesIO(response.content))
+
+        # แปลงโหมดสีเป็น RGB (เผื่อรูปต้นทางเป็น PNG แบบโปร่งใส)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        # Optimize: ปรับลดขนาดรูปให้กว้างสูงสุดแค่ 400px เพื่อ Instant Loading
+        base_width = 400
+        if img.width > base_width:
+            wpercent = (base_width / float(img.width))
+            hsize = int((float(img.height) * float(wpercent)))
+            img = img.resize((base_width, hsize), Image.Resampling.LANCZOS)
+
+        # บันทึกรูปลงเซิร์ฟเวอร์ (ปรับ Quality เป็น 85% เพื่อลดขนาดไฟล์)
+        img.save(filepath, "JPEG", quality=85)
+
+        return send_from_directory(CACHE_DIR, filename, max_age=31536000)
+
+    except Exception as e:
+        print(f"Error caching image: {e}")
+        # ถ้าระบบดาวน์โหลดหรือบีบอัดพัง ให้ดึงรูประบบที่เป็น Local มาโชว์แทน
+        return redirect('/static/default_image.jpg')
 
 # สร้างตารางในฐานข้อมูลก่อนรันแอปพลิเคชัน
 with app.app_context():
