@@ -377,7 +377,7 @@ def my_folders():
 def folder_details(folder_id):
     folder = db.session.get(Folder, folder_id)
     if not folder or folder.user_id != current_user.id:
-        flash('ไม่พบโฟลเดอร์ หรือคุณไม่มีสิทธิ์เข้าถึง', 'danger')
+        flash('folder not found', 'danger')
         return redirect(url_for('my_folders'))
 
     bookmarks = Bookmark.query.filter_by(folder_id=folder.id).all()
