@@ -26,5 +26,5 @@ To further enhance the Information Retrieval experience, this application implem
 
 **1. Clone the repository**
 ```bash
-git clone <your-repo-url>
+git clone <(https://github.com/ninlawan-numnim/IRProject.git)>
 cd <your-repo-folder>
