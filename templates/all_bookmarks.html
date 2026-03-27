@@ -4,7 +4,7 @@
 <div class="row mt-4">
     <div class="col-12">
         <h2 class="mb-4">All My Bookmarks</h2>
-        <p class="text-muted small">เมนูทั้งหมดที่คุณบันทึกไว้ เรียงตามคะแนนที่คุณให้ (Ranked by Rating)</p>
+        <p class="text-muted small">All your saved menu items are listed according to your rating. (Ranked by Rating)</p>
         <hr>
 
         {% if bookmarks %}
@@ -24,7 +24,9 @@
                                         {% for i in range(5 - item.rating) %}☆{% endfor %}
                                         <span class="text-muted small">({{ item.rating }} Stars)</span>
                                     </div>
-                                    <a href="{{ url_for('search', q=item.name) }}" class="btn btn-outline-primary btn-sm w-100">View Details</a>
+                                    <a href="{{ url_for('search', q=item.name) }}" class="btn btn-outline-primary btn-sm w-100 fw-bold">
+                                        See more like this
+                                    </a>
                                 </div>
                             </div>
                         </div>
@@ -32,7 +34,7 @@
                 {% endfor %}
             </div>
         {% else %}
-            <div class="alert alert-info">ยังไม่มีเมนูที่บันทึกไว้ ลองไปค้นหาและเซฟเมนูดูสิ!</div>
+            <div class="alert alert-info">There are no saved menus yet. Try searching for and saving the menu!</div>
         {% endif %}
     </div>
 </div>

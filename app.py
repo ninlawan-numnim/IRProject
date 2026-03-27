@@ -122,15 +122,15 @@ print("Building Vocabulary for Autocomplete...")
 recipe_names_list = df['Name'].dropna().tolist()
 
 print("Building TF-IDF Matrices for Field Weighting...")
-# แยก Vectorizer ออกเป็น 3 ตัว
+# Separate Vectorizers for individual fields
 vec_name = TfidfVectorizer(stop_words='english')
 vec_ingr = TfidfVectorizer(stop_words='english')
 vec_inst = TfidfVectorizer(stop_words='english')
 
-# สร้าง Matrix แยกกัน 3 ส่วน
-mat_name = vec_name.fit_transform(df['Name'].fillna(''))
-mat_ingr = vec_ingr.fit_transform(df['RecipeIngredientParts'].fillna(''))
-mat_inst = vec_inst.fit_transform(df['RecipeInstructions'].fillna(''))
+# Create document-term matrices separately
+mat_name = vec_name.fit_transform(df['Name'].astype(str).fillna(''))
+mat_ingr = vec_ingr.fit_transform(df['RecipeIngredientParts'].astype(str).fillna(''))
+mat_inst = vec_inst.fit_transform(df['RecipeInstructions'].astype(str).fillna(''))
 print("System Ready!")
 
 
@@ -174,18 +174,19 @@ def search():
             potential_correction = " ".join(corrected_words)
             if potential_correction.lower() != query.lower():
                 corrected_query = potential_correction
+
         # [IR Feature] Text Retrieval (Weighted TF-IDF & Cosine Similarity)
-        # แปลงคำค้นหาแยกตามโมเดล
+        # Transform the query separately for each model
         q_name = vec_name.transform([query])
         q_ingr = vec_ingr.transform([query])
         q_inst = vec_inst.transform([query])
 
-        # คำนวณความเหมือน (Cosine Similarity) แยกแต่ละส่วน
+        # Calculate Cosine Similarity for each field
         sim_name = cosine_similarity(q_name, mat_name).flatten()
         sim_ingr = cosine_similarity(q_ingr, mat_ingr).flatten()
-        im_inst = cosine_similarity(q_inst, mat_inst).flatten()
+        sim_inst = cosine_similarity(q_inst, mat_inst).flatten()
 
-        # [จุดขายเอาไว้โชว์อาจารย์] ถ่วงน้ำหนักคะแนน: ชื่อ 60%, ส่วนผสม 30%, วิธีทำ 10%
+        # Apply Field Weighting: Name 60%, Ingredients 30%, Instructions 10%
         similarities = (0.6 * sim_name) + (0.3 * sim_ingr) + (0.1 * sim_inst)
 
         # [IR Feature] Faceted Search (Time Filtering)
@@ -195,10 +196,9 @@ def search():
 
         top_20_indices = similarities.argsort()[-20:][::-1]
 
-        # [IR Feature] Content-Based Recommendation (ใช้ข้อมูลชื่อเมนูเป็นหลัก)
+        # [IR Feature] Content-Based Recommendation (Primarily based on recipe names)
         top_20_vecs = mat_name[top_20_indices]
         all_sims_matrix = cosine_similarity(top_20_vecs, mat_name)
-
 
         # =========================================================
         # [IR Feature] On-Demand Review Loading
@@ -435,18 +435,46 @@ def folder_details(folder_id):
                 'time': recipe['FormattedTime']
             })
 
-    # [IR Feature] Profile-Based Recommendation System
+    # [IR Feature] Profile-Based Recommendation System (Explicit Relevance Feedback)
     recommendations = []
     if saved_recipe_ids:
-        saved_indices = df.index[df['RecipeId'].isin(saved_recipe_ids)].tolist()
+        saved_indices = []
+        weights = []
+
+        # Extract indices and star ratings to use as weights
+        for bm in bookmarks:
+            idx_list = df.index[df['RecipeId'] == int(bm.recipe_id)].tolist()
+            if idx_list:
+                saved_indices.append(idx_list[0])
+                # If no rating (0 stars), assign a default weight of 3 (Neutral)
+                weights.append(bm.rating if bm.rating > 0 else 3)
+
         if saved_indices:
-            saved_vectors = tfidf_matrix[saved_indices]
-            profile_vector = np.asarray(saved_vectors.mean(axis=0))
-            similarities = cosine_similarity(profile_vector, tfidf_matrix).flatten()
+            import numpy as np
+            from sklearn.metrics.pairwise import cosine_similarity
+
+            # Convert vectors to dense arrays for mathematical operations
+            saved_name_vecs = mat_name[saved_indices].toarray()
+            saved_ingr_vecs = mat_ingr[saved_indices].toarray()
+            saved_inst_vecs = mat_inst[saved_indices].toarray()
+
+            # Create Profile Vector using star ratings as weights (Weighted Average)
+            profile_name = np.average(saved_name_vecs, axis=0, weights=weights).reshape(1, -1)
+            profile_ingr = np.average(saved_ingr_vecs, axis=0, weights=weights).reshape(1, -1)
+            profile_inst = np.average(saved_inst_vecs, axis=0, weights=weights).reshape(1, -1)
+
+            # Calculate similarity against the entire database for each field
+            sim_name = cosine_similarity(profile_name, mat_name).flatten()
+            sim_ingr = cosine_similarity(profile_ingr, mat_ingr).flatten()
+            sim_inst = cosine_similarity(profile_inst, mat_inst).flatten()
+
+            # Aggregate scores using Field Weighting (Name 60%, Ingr 30%, Inst 10%)
+            similarities = (0.6 * sim_name) + (0.3 * sim_ingr) + (0.1 * sim_inst)
             top_indices = similarities.argsort()[::-1]
 
+            # Filter out already bookmarked recipes
             for idx in top_indices:
-                rec_id = df.iloc[idx]['RecipeId']
+                rec_id = int(df.iloc[idx]['RecipeId'])
                 if rec_id not in saved_recipe_ids:
                     recipe = df.iloc[idx]
                     recommendations.append({

@@ -41,8 +41,9 @@
                                     <h5 class="card-title text-primary">{{ item.name | title }}</h5>
                                     <p class="card-text text-muted small mb-2"><i class="bi bi-clock"></i> Time: {{ item.time }}</p>
                                     <p class="card-text text-muted small mb-3">Match: {{ "%.0f"|format(item.score * 100) }}%</p>
-                                    <button type="button" class="btn btn-outline-primary mt-auto fw-bold" data-bs-toggle="modal" data-bs-target="#recipeModal{{ item.id }}">
-                                        View Recipe
+
+                                    <button type="button" class="btn btn-primary mt-auto fw-bold" data-bs-toggle="modal" data-bs-target="#recipeModal{{ item.id }}">
+                                        View Detail
                                     </button>
                                 </div>
                             </div>
@@ -103,12 +104,10 @@
 
                                     <div class="modal-footer bg-light">
                                         <div class="d-flex flex-wrap w-100 gap-2 justify-content-between align-items-center">
-
                                             <div class="d-flex flex-wrap gap-3 flex-grow-1 align-items-center">
                                                 <form action="{{ url_for('bookmark_recipe') }}" method="POST" class="d-flex align-items-center">
                                                     <input type="hidden" name="recipe_id" value="{{ item.id }}">
                                                     <input type="hidden" name="recipe_name" value="{{ item.name }}">
-
                                                     {% if folders %}
                                                         <select name="folder_id" class="form-select form-select-sm me-2 border-success" style="min-width: 140px;" required>
                                                             <option value="" disabled selected>Select folder...</option>
@@ -122,15 +121,12 @@
                                                         <button type="button" class="btn btn-success btn-sm text-nowrap opacity-50" disabled>Save Recipe</button>
                                                     {% endif %}
                                                 </form>
-
                                                 <div class="vr d-none d-lg-block mx-1"></div>
-
                                                 <form method="POST" action="{{ url_for('create_folder') }}" class="d-flex align-items-center">
                                                     <input type="text" name="folder_name" class="form-control form-control-sm me-2" placeholder="New Folder..." style="min-width: 120px;" required>
                                                     <button type="submit" class="btn btn-outline-success btn-sm text-nowrap">Create</button>
                                                 </form>
                                             </div>
-
                                             <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
                                         </div>
                                     </div>
