@@ -121,9 +121,16 @@ df['FirstImage'] = df['Images'].apply(extract_first_image)
 print("Building Vocabulary for Autocomplete...")
 recipe_names_list = df['Name'].dropna().tolist()
 
-print("Building TF-IDF Matrix...")
-vectorizer = TfidfVectorizer(stop_words='english')
-tfidf_matrix = vectorizer.fit_transform(df['combined_text'])
+print("Building TF-IDF Matrices for Field Weighting...")
+# แยก Vectorizer ออกเป็น 3 ตัว
+vec_name = TfidfVectorizer(stop_words='english')
+vec_ingr = TfidfVectorizer(stop_words='english')
+vec_inst = TfidfVectorizer(stop_words='english')
+
+# สร้าง Matrix แยกกัน 3 ส่วน
+mat_name = vec_name.fit_transform(df['Name'].fillna(''))
+mat_ingr = vec_ingr.fit_transform(df['RecipeIngredientParts'].fillna(''))
+mat_inst = vec_inst.fit_transform(df['RecipeInstructions'].fillna(''))
 print("System Ready!")
 
 
@@ -167,10 +174,19 @@ def search():
             potential_correction = " ".join(corrected_words)
             if potential_correction.lower() != query.lower():
                 corrected_query = potential_correction
+        # [IR Feature] Text Retrieval (Weighted TF-IDF & Cosine Similarity)
+        # แปลงคำค้นหาแยกตามโมเดล
+        q_name = vec_name.transform([query])
+        q_ingr = vec_ingr.transform([query])
+        q_inst = vec_inst.transform([query])
 
-        # [IR Feature] Text Retrieval (TF-IDF & Cosine Similarity)
-        query_vec = vectorizer.transform([query])
-        similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
+        # คำนวณความเหมือน (Cosine Similarity) แยกแต่ละส่วน
+        sim_name = cosine_similarity(q_name, mat_name).flatten()
+        sim_ingr = cosine_similarity(q_ingr, mat_ingr).flatten()
+        im_inst = cosine_similarity(q_inst, mat_inst).flatten()
+
+        # [จุดขายเอาไว้โชว์อาจารย์] ถ่วงน้ำหนักคะแนน: ชื่อ 60%, ส่วนผสม 30%, วิธีทำ 10%
+        similarities = (0.6 * sim_name) + (0.3 * sim_ingr) + (0.1 * sim_inst)
 
         # [IR Feature] Faceted Search (Time Filtering)
         if max_time > 0:
@@ -179,9 +195,10 @@ def search():
 
         top_20_indices = similarities.argsort()[-20:][::-1]
 
-        # [IR Feature] Content-Based Recommendation (Vectorized calculation)
-        top_20_vecs = tfidf_matrix[top_20_indices]
-        all_sims_matrix = cosine_similarity(top_20_vecs, tfidf_matrix)
+        # [IR Feature] Content-Based Recommendation (ใช้ข้อมูลชื่อเมนูเป็นหลัก)
+        top_20_vecs = mat_name[top_20_indices]
+        all_sims_matrix = cosine_similarity(top_20_vecs, mat_name)
+
 
         # =========================================================
         # [IR Feature] On-Demand Review Loading
